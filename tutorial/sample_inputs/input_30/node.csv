@@ -1,0 +1,32 @@
+idx,name,type,lat,long,open,close
+0,depot,depot,40.54,-76.05,0,24
+1,customer 1,customer,39.85,-74.65,12,20
+2,customer 2,customer,40.63,-74.75,12,20
+3,customer 3,customer,40.26,-75.5,8,16
+4,customer 4,customer,40.77,-76.02,6,14
+5,customer 5,customer,40.72,-76.76,13,21
+6,customer 6,customer,40.79,-75.62,9,17
+7,customer 7,customer,39.9,-75.5,7,15
+8,customer 8,customer,39.85,-74.85,8,16
+9,customer 9,customer,40.21,-75.24,10,18
+10,customer 10,customer,39.69,-75.91,9,17
+11,customer 11,customer,40.76,-76.17,11,19
+12,customer 12,customer,40.26,-76.29,10,18
+13,customer 13,customer,40.16,-76.52,6,14
+14,customer 14,customer,39.85,-74.72,9,17
+15,customer 15,customer,40.51,-76.87,13,21
+16,customer 16,customer,40.56,-76.31,10,18
+17,customer 17,customer,40.9,-75.09,9,17
+18,customer 18,customer,39.9,-74.6,6,14
+19,customer 19,customer,40.25,-76.97,9,17
+20,customer 20,customer,39.94,-75.09,11,19
+21,customer 21,customer,39.99,-74.63,13,21
+22,customer 22,customer,39.57,-75.33,9,17
+23,customer 23,customer,39.54,-76.06,6,14
+24,customer 24,customer,39.56,-75.75,7,15
+25,customer 25,customer,40.18,-75.53,6,14
+26,customer 26,customer,40.72,-76.65,11,19
+27,customer 27,customer,39.51,-76.16,6,14
+28,customer 28,customer,40.43,-75.87,13,21
+29,customer 29,customer,39.62,-76.96,13,21
+30,customer 30,customer,40.36,-75.76,8,16

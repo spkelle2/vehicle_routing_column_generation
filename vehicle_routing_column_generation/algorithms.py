@@ -87,6 +87,7 @@ class ExactVRP(VRP):
         """
         # make model
         mdl = gu.Model("exact_vrp")
+        mdl.setParam("MIPGap", .01)
 
         # create variables
         # x_i_j_k if truck k travels from node i to node j
@@ -180,7 +181,7 @@ class ExactVRP(VRP):
                 sln.route[k, stop] = f
 
         # save the solution
-        solution_schema.csv.write_directory(sln, self.solution_pth)
+        solution_schema.csv.write_directory(sln, self.solution_pth, allow_overwrite=True)
 
     def _recover_route(self, truck_idx) -> dict[int, dict[str, Any]]:
         """ Unpack the route that the exact VRP determined truck <truck_idx>
@@ -451,4 +452,4 @@ class HeuristicVRP(VRP):
                 sln.route[k, stop] = f
 
         # save the solution
-        solution_schema.csv.write_directory(sln, self.solution_pth)
+        solution_schema.csv.write_directory(sln, self.solution_pth, allow_overwrite=True)
