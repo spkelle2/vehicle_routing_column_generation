@@ -70,8 +70,10 @@ class ExactVRP(VRP):
 
         :param **kwargs: keyword arguments to pass onto base constructor
         """
+        init_start = time.time()
         super().__init__(**kwargs)
         self.mdl, self.x, self.s = self._create_exact_vrp()
+        self.init_time = time.time() - init_start
 
     def _create_exact_vrp(self) -> \
             Tuple[gu.Model, dict[Tuple[int, int, int], gu.Var], dict[int, gu.Var]]:
@@ -85,7 +87,6 @@ class ExactVRP(VRP):
         """
         # make model
         mdl = gu.Model("exact_vrp")
-        mdl.setParam("TimeLimit", self.parameters['max_solve_time'])
 
         # create variables
         # x_i_j_k if truck k travels from node i to node j
@@ -150,9 +151,13 @@ class ExactVRP(VRP):
 
         :return: None
         """
-
+        # limit solve time to whatever is left after model build
+        self.mdl.setParam("TimeLimit", max(self.parameters['max_solve_time'] - self.init_time, .1))
         self.mdl.optimize()
-        self._save_solution()
+        if self.mdl.objVal < float('inf'):
+            self._save_solution()
+        else:
+            print('no solution found!')
 
     def _save_solution(self) -> None:
         """ Save the solution to the exact VRP. Record summary statistics and
@@ -221,9 +226,11 @@ class HeuristicVRP(VRP):
 
         :param **kwargs: keyword arguments to pass onto base constructor
         """
+        init_start = time.time()
         super().__init__(**kwargs)
         self.mdl, self.z, self.c, self.route = self._create_master_problem()
         self.sub_mdl, self.x, self.s = self._create_subproblem()
+        self.init_time = time.time() - init_start
 
     def _create_master_problem(self) -> \
             Tuple[gu.Model, dict[int, gu.Var], dict[int, gu.Var], dict[int, dict[int, dict[str, Any]]]]:
@@ -255,7 +262,7 @@ class HeuristicVRP(VRP):
 
         # create variables and set objective
         # z_i - if route i is chosen - begins relaxed for column generation
-        z = {route_idx: mdl.addVar(ub=1, obj=self.dat.arc[self.depot_idx, j]['cost'] +
+        z = {route_idx: mdl.addVar(obj=self.dat.arc[self.depot_idx, j]['cost'] +
                                    self.dat.arc[j, self.depot_idx]['cost'], name=f'z_{route_idx}')
              for route_idx, j in singleton.items()}
 
@@ -282,7 +289,9 @@ class HeuristicVRP(VRP):
         # make model
         sub_mdl = gu.Model("vrp_subproblem")
         sub_mdl.setParam("PoolSolutions", len(self.dat.order))
-        sub_mdl.setParam("MIPGap", .01)
+        # force early termination so we get through as many subproblems as possible
+        sub_mdl.setParam("MIPGap", .1)
+        sub_mdl.setParam("TimeLimit", 1)
 
         # create variables
         # x_i_j if this route travels from node i to node j
@@ -335,12 +344,17 @@ class HeuristicVRP(VRP):
         :return: None
         """
         finding_better_routes = True
-        max_col_gen_time = time.time() + .9*self.parameters['max_solve_time']
+        remaining_solve_time = self.parameters['max_solve_time'] - self.init_time
+        col_gen_end = time.time() + .9*remaining_solve_time
 
         # iterate between solving master and subproblem to generate routes
         # until no improving routes left or we run out of time
-        while finding_better_routes and time.time() < max_col_gen_time:
+        while finding_better_routes and time.time() < col_gen_end:
+            prev_obj = float('inf') if self.mdl.status == gu.GRB.LOADED else self.mdl.objVal
             self.mdl.optimize()
+            # move on if we aren't making reasonable progress
+            if self.mdl.objVal > .999 * prev_obj:
+                break
             # reduced cost of a column = (column objective coefficient) - (row duals)^T * column coefs
             self.sub_mdl.setObjective(
                 gu.quicksum(f['cost'] * self.x[i, j] for (i, j), f in self.dat.arc.items()) -
@@ -356,7 +370,7 @@ class HeuristicVRP(VRP):
         # update all route variables to binary and resolve to find a good set of covering routes
         for var in self.z.values():
             var.vtype = gu.GRB.BINARY
-        self.mdl.setParam("TimeLimit", .1*self.parameters['max_solve_time'])
+        self.mdl.setParam("TimeLimit", .1*remaining_solve_time)
         self.mdl.optimize()
 
         self._save_solution()
@@ -372,7 +386,7 @@ class HeuristicVRP(VRP):
         solution_number = 0
         self.sub_mdl.setParam("SolutionNumber", solution_number)
 
-        while solution_number < self.mdl.SolCount and self.sub_mdl.PoolObjVal < 0:
+        while solution_number < self.sub_mdl.SolCount and self.sub_mdl.PoolObjVal < 0:
             route_cost = sum(f['cost'] * self.x[i, j].xn for (i, j), f in self.dat.arc.items())
             route = self._recover_route()
             constrs = [self.c[f['node_idx']] for f in route.values() if
@@ -387,6 +401,7 @@ class HeuristicVRP(VRP):
             route_idx += 1
             solution_number += 1
             self.sub_mdl.setParam("SolutionNumber", solution_number)
+        # self.mdl.update()
 
     def _recover_route(self):
         """ Unpack a route that the pricing problem generated

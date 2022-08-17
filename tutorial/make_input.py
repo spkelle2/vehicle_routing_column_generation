@@ -86,7 +86,7 @@ def main(pth: str, number_orders: int, *args) -> None:
     # set parameter values
     dat['parameters']['truck_capacity'] = {'value': 40000}
     dat['parameters']['fleet_size'] = {'value': number_orders//2 + 1}
-    dat['parameters']['max_solve_time'] = {'value': 60}
+    dat['parameters']['max_solve_time'] = {'value': 10}
 
     dat = input_schema.TicDat(**dat)
     input_schema.csv.write_directory(dat, pth)

@@ -2,7 +2,9 @@ name: col_gen
 channels:
   - gurobi
   - defaults
+  - conda-forge
 dependencies:
+  - coverage
   - gurobi
   - pandas
   - matplotlib
