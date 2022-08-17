@@ -1,0 +1,4 @@
+key,value
+truck_capacity,40000
+fleet_size,2
+max_solve_time,60

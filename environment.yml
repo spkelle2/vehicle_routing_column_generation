@@ -1,0 +1,10 @@
+name: col_gen
+channels:
+  - gurobi
+  - defaults
+dependencies:
+  - gurobi
+  - pandas
+  - matplotlib
+  - pip:
+    - ticdat
