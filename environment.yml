@@ -1,0 +1,14 @@
+name: col_gen
+channels:
+  - conda-forge
+  - defaults
+  - gurobi
+dependencies:
+  - coverage
+  - gurobi
+  - jupyter
+  - matplotlib
+  - pandas
+  - pip
+  - pip:
+    - ticdat
