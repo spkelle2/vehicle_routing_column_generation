@@ -22,7 +22,6 @@ def handle_all_experiments(mode: str, sln_directory: str, run_time=None) -> None
 
     # delete solution root folder if it exists and recreate it
     shutil.rmtree(sln_root_pth, ignore_errors=True)
-    os.mkdir(sln_root_pth)
 
     for i, input_dir in enumerate(sorted(os.listdir(input_root_pth))):
         orders = pattern.match(input_dir).group(1)
