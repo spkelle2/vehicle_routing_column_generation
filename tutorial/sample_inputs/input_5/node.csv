@@ -1,7 +1,0 @@
-idx,name,type,lat,long,open,close
-0,depot,depot,40.93,-75.92,0,24
-1,customer 1,customer,39.97,-76.69,8,16
-2,customer 2,customer,40.46,-76.59,12,20
-3,customer 3,customer,39.56,-75.84,7,15
-4,customer 4,customer,39.71,-74.98,6,14
-5,customer 5,customer,40.6,-76.46,7,15
