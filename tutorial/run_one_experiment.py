@@ -1,6 +1,4 @@
 import os
-import re
-import shutil
 import sys
 
 from vehicle_routing_column_generation.algorithms import ExactVRP, HeuristicVRP
@@ -25,7 +23,7 @@ def run_one_experiment(sln_root_pth: str, orders: str, input_pth, run_time=None)
     if run_time:
         heuristic_vrp.parameters['max_solve_time'] = int(run_time)
     heuristic_vrp.solve()
-        
+
     # run exact method
     exact_sln_pth = os.path.join(sln_root_pth, f'solution_{orders}_exact')
     exact_vrp = ExactVRP(input_pth=input_pth, solution_pth=exact_sln_pth)

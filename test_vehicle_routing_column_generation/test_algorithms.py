@@ -146,6 +146,11 @@ class TestExactVRP(TestBase):
         self.assertTrue(vrp._next_stop(2, 0) == 1)
         self.assertTrue(vrp._next_stop(1, 0) == 0)
 
+    def test_fixing_bad_data(self):
+        vrp = ExactVRP(input_pth=os.path.join(self.input_dir, 'dirty_input_to_clean'),
+                       solution_pth=self.small_sln_pth)
+        vrp.solve()
+
 
 class TestHeuristicVRP(TestBase):
 

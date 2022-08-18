@@ -1,6 +1,5 @@
 import gurobipy as gu
 import os
-from ticdat import TicDatFactory, standard_main
 import time
 from typing import Tuple, Any
 
