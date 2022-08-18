@@ -40,7 +40,7 @@ def make_pbs_file(sln_root_pth, orders, input_pth, run_time):
 
     txt = f"""#PBS -N vrp_{orders}_{run_time}
 #PBS -e /home/sek519/vehicle_routing_column_generation/tutorial/vrp_orders_{orders}_time_{run_time}.err
-#PBS -e /home/sek519/vehicle_routing_column_generation/tutorial/vrp_orders_{orders}_time_{run_time}.out
+#PBS -o /home/sek519/vehicle_routing_column_generation/tutorial/vrp_orders_{orders}_time_{run_time}.out
 #PBS -l ncpus=4,mem=4gb,vmem=6gb
 #PBS -q 'medium'
 
