@@ -1,27 +1,39 @@
+"""
+Defines three classes.
+* VRP is a base class for data input management that both VRP algorithms will inherit
+* ExactVRP solves the VRPTW in its traditional formulation
+* HeuristicVRP solve the VRPTW as a set covering problem with column generation
+"""
+
 import gurobipy as gu
 import os
+from ticdat.jsontd import make_json_dict
 import time
-from typing import Tuple, Any
+from typing import Tuple, Any, Union
 
-from vehicle_routing_column_generation.schemas import input_schema, solution_schema
+from vehicle_routing_column_generation.schemas import input_schema, solution_schema, toy_input
 
 
 class VRP:
 
-    def __init__(self, input_pth: str, solution_pth: str):
+    def __init__(self, input_pth: str = None, solution_pth: str = None,
+                 input_dict: dict[str, dict[str, Any]] = None, solution_dict=False):
         """Base constructor for VRP. Checks the validity of the input data and
         solution path. Assigns common attributes.
 
-        :param input_pth: The location of the directory storing input CSV data
-        :param solution_pth: The location of the directory where solution CSV data will be stored
+        :param input_pth: The location of the directory of CSV's storing input data
+        :param solution_pth: The location of the directory of CSV's where solution data written
+        :param input_dict: Dictionary storing input data
+        :param solution_dict: Whether or not to return solution data as a dictionary
         """
-        # check validity of given directories
-        assert os.path.isdir(input_pth), 'input_pth must be a valid directory'
-        assert os.path.isdir(os.path.dirname(solution_pth)), 'the parent directory of sln_pth must exist'
+        assert solution_pth or solution_dict, 'must specify where to save solution'
+        if solution_pth:
+            assert os.path.isdir(os.path.dirname(solution_pth)), \
+                'the parent directory of sln_pth must exist'
 
         # assign base class attributes
         self.solution_pth = solution_pth
-        dat = self._data_checks(input_pth)
+        dat = self._data_checks(input_pth, input_dict)
         self.dat = dat
         self.parameters = input_schema.create_full_parameters_dict(dat)
         self.depot_idx = [i for i, f in self.dat.node.items() if f['type'] == 'depot'].pop()
@@ -30,18 +42,27 @@ class VRP:
                      for (i, j), f in dat.arc.items()) + 1
 
     @staticmethod
-    def _data_checks(input_pth: str) -> input_schema.TicDat:
-        """ Read in the CSV's with data used for solving this VRP instance.
-        Confirms the CSV's match the schema defined in schemas.input_schema.
-        Check that the data in the CSV's match the remaining assumptions of our
-        VRP models.
+    def _data_checks(input_pth: str = None, input_dict: dict[str, dict[str, Any]] = None) -> \
+            input_schema.TicDat:
+        """ Read in data used for solving this VRP instance. Confirms the data
+        match the schema defined in schemas.input_schema. Check that the data
+        match the remaining assumptions of our VRP models.
 
         :param input_pth: The directory containing the CSV's of input data for this VRP instance
+        :param input_dict: Dictionary storing input data
         :return: a TicDat containing our input data
         """
-        # basic ticdat checks
-        pk_fails = input_schema.csv.find_duplicates(input_pth)
-        dat = input_schema.csv.create_tic_dat(input_pth)
+        assert input_pth or input_dict, 'must specify an input'
+        if input_pth:
+            assert os.path.isdir(input_pth), 'input_pth must be a valid directory'
+
+        # read in and do basic data checks
+        if input_pth:
+            pk_fails = input_schema.csv.find_duplicates(input_pth)
+            dat = input_schema.csv.create_tic_dat(input_pth)
+        else:
+            pk_fails = {}
+            dat = input_schema.TicDat(**input_dict)
         fk_fails = input_schema.find_foreign_key_failures(dat)
         type_fails = input_schema.find_data_type_failures(dat)
         check_fails = input_schema.find_data_row_failures(dat)
@@ -76,7 +97,7 @@ class ExactVRP(VRP):
 
     def _create_exact_vrp(self) -> \
             Tuple[gu.Model, dict[Tuple[int, int, int], gu.Var], dict[int, gu.Var]]:
-        """ Create the gurobi model for the exact VRP. Formulation from
+        """ Create the gurobi model for the exact VRP. Formulation adapted from
         https://how-to.aimms.com/Articles/332/332-Formulation-CVRP.html and
         https://how-to.aimms.com/Articles/332/332-Time-Windows.html
 
@@ -86,7 +107,7 @@ class ExactVRP(VRP):
         """
         # make model
         mdl = gu.Model("exact_vrp")
-        mdl.setParam("MIPGap", .01)
+        mdl.setParam("MIPGap", self.parameters['exact_vrp_mip_gap'])
 
         # create variables
         # x_i_j_k if truck k travels from node i to node j
@@ -146,7 +167,7 @@ class ExactVRP(VRP):
 
         return mdl, x, s
 
-    def solve(self) -> None:
+    def solve(self) -> Union[None, dict[str, dict[str, Any]]]:
         """ Solve the exact VRP and save its solution
 
         :return: None
@@ -155,15 +176,15 @@ class ExactVRP(VRP):
         self.mdl.setParam("TimeLimit", max(self.parameters['max_solve_time'] - self.init_time, .1))
         self.mdl.optimize()
         if self.mdl.objVal < float('inf'):
-            self._save_solution()
+            return self._save_solution()
         else:
             print('no solution found!')
 
-    def _save_solution(self) -> None:
+    def _save_solution(self) -> Union[None, dict[str, dict[str, Any]]]:
         """ Save the solution to the exact VRP. Record summary statistics and
         each route's details.
 
-        :return: None
+        :return: Optionally, a dictionary of the solution data
         """
 
         sln = solution_schema.TicDat()
@@ -180,7 +201,10 @@ class ExactVRP(VRP):
                 sln.route[k, stop] = f
 
         # save the solution
-        solution_schema.csv.write_directory(sln, self.solution_pth, allow_overwrite=True)
+        if self.solution_pth:
+            solution_schema.csv.write_directory(sln, self.solution_pth, allow_overwrite=True)
+        else:
+            return make_json_dict(solution_schema, sln, verbose=True)
 
     def _recover_route(self, truck_idx) -> dict[int, dict[str, Any]]:
         """ Unpack the route that the exact VRP determined truck <truck_idx>
@@ -234,11 +258,11 @@ class HeuristicVRP(VRP):
 
     def _create_master_problem(self) -> \
             Tuple[gu.Model, dict[int, gu.Var], dict[int, gu.Var], dict[int, dict[int, dict[str, Any]]]]:
-        """ Create the gurobi model for the heuristic VRP master problem. Follows
-        a set covering formulation to eventually select a collection of routes that
-        fulfill all customer orders. Begins as an LP to yield dual values for
-        pricing problem. Once all desired routes (columns) have been added, variables
-        can be made binary to select the most cost efficient subset.
+        """ Create the gurobi model for the restricted set covering problem. Will
+        eventually select a collection of routes that fulfill all customer orders.
+        Begins as an LP to yield dual values for pricing problem. Once all desired
+        routes (columns) have been added, variables can be made binary to select
+        the most cost efficient subset.
 
         :return: mdl, z, c, and route, which are respectively the master problem
         gurobi model, dictionary of variables representing which routes are selected,
@@ -252,7 +276,7 @@ class HeuristicVRP(VRP):
         singleton = dict(enumerate(self.dat.order.keys()))
 
         # order of stops in the route represented by each variable
-        # initialize the variables to represent the set of singleton routes
+        # initialize to be the set of singleton routes (i.e. travel from depot to one customer and back)
         route = {route_idx: {
             0: {'node_idx': self.depot_idx, 'arrival': 0},
             1: {'node_idx': j, 'arrival': max(self.dat.arc[self.depot_idx, j]['travel_time'],
@@ -262,12 +286,13 @@ class HeuristicVRP(VRP):
 
         # create variables and set objective
         # z_i - if route i is chosen - begins relaxed for column generation
+        # initialize variables to represent the set of singleton routes created above
         z = {route_idx: mdl.addVar(obj=self.dat.arc[self.depot_idx, j]['cost'] +
                                    self.dat.arc[j, self.depot_idx]['cost'], name=f'z_{route_idx}')
              for route_idx, j in singleton.items()}
 
         # set constraints
-        # each customer must be visited by a route (i.e. have delivery demand met)
+        # 7) each customer must be visited by a route (i.e. have delivery demand met)
         # since starting routes are singletons, each must be selected to cover
         c = {j: mdl.addConstr(z[route_idx] >= 1, name=f'c_{j}') for route_idx, j
              in singleton.items()}
@@ -276,9 +301,9 @@ class HeuristicVRP(VRP):
 
     def _create_subproblem(self) -> \
             Tuple[gu.Model, dict[Tuple[int, int], gu.Var], dict[int, gu.Var]]:
-        """ Create the gurobi model for the heuristic VRP pricing problem. Formulation
-        from https://how-to.aimms.com/Articles/332/332-Formulation-CVRP.html and
-        https://how-to.aimms.com/Articles/332/332-Time-Windows.html. Since this
+        """ Create the gurobi model for the pricing problem. Formulation adapted
+        from https://how-to.aimms.com/Articles/332/332-Formulation-CVRP.html
+        and https://how-to.aimms.com/Articles/332/332-Time-Windows.html. Since this
         model generates a single route, indexing over all trucks and requiring
         that all customers are visited are excepted.
 
@@ -288,40 +313,49 @@ class HeuristicVRP(VRP):
         """
         # make model
         sub_mdl = gu.Model("vrp_subproblem")
-        sub_mdl.setParam("PoolSolutions", len(self.dat.order))
-        # force early termination so we get through as many subproblems as possible
-        sub_mdl.setParam("MIPGap", .1)
-        sub_mdl.setParam("TimeLimit", 1)
+
+        # save extra solutions to generate many routes per pricing problem solve
+        sub_mdl.setParam(
+            "PoolSolutions", len(self.dat.order) if
+            self.parameters['solutions_per_pricing_problem'] == 'number_customers'
+            else int(self.parameters['solutions_per_pricing_problem'])
+        )
+
+        # force early termination of pricing problem so we can solve it repeatedly
+        # in fixed time period. tweak these parameters to find the right trade-off
+        # between quantity and quality of columns generated
+        sub_mdl.setParam("MIPGap", self.parameters['pricing_problem_mip_gap'])
+        sub_mdl.setParam("TimeLimit", self.parameters['pricing_problem_mip_gap'])
 
         # create variables
         # x_i_j if this route travels from node i to node j
         x = {(i, j): sub_mdl.addVar(vtype=gu.GRB.BINARY, name=f'x_{i}_{j}')
-                  for i in self.dat.node for j in self.dat.node if i != j}
+             for i in self.dat.node for j in self.dat.node if i != j}
         # s_i time when service begins at node i
         s = {i: sub_mdl.addVar(lb=f['open'], ub=f['close'], name=f's_{i}')
-                  for i, f in self.dat.node.items()}
+             for i, f in self.dat.node.items()}
 
         # set constraints
-        # 1) Any node j entered by this route must be left
+        # 8) Any node j entered by this route must be left
         for j in self.dat.node:
             sub_mdl.addConstr(
                 gu.quicksum(x[i, j] for i in self.dat.node if i != j) -
                 gu.quicksum(x[j, h] for h in self.dat.node if j != h) == 0,
                 name=f"flow_conserve_{j}"
             )
-        # 2) The route leaves the depot at most once
+        # 9) The route leaves the depot at most once
         sub_mdl.addConstr(
             gu.quicksum(x[self.depot_idx, j] for j in self.dat.order) <= 1,
             name=f"include_depot"
         )
-        # 4) Route stays within capacity
+        # 10) Route stays within capacity
         sub_mdl.addConstr(
             gu.quicksum(gu.quicksum(f['weight'] * x[i, j] for j, f in self.dat.order.items()
                                     if i != j) for i in self.dat.node)
             <= self.parameters['truck_capacity'], name=f"capacity"
         )
 
-        # 5) If route serves customers/orders i then j, the latter must occur
+        # 11) If route serves customers/orders i then j, the latter must occur
         # after the travel time from the former
         for i in self.dat.node:
             for j in self.dat.order:
@@ -334,7 +368,7 @@ class HeuristicVRP(VRP):
 
         return sub_mdl, x, s
 
-    def solve(self) -> None:
+    def solve(self) -> Union[None, dict[str, dict[str, Any]]]:
         """ Find a good solution to VRP using column generation and set covering.
         Uses most of the allotted solve time to iterate between solving the master
         and pricing problem to generate routes. Uses the remaining time to solve
@@ -345,15 +379,17 @@ class HeuristicVRP(VRP):
         """
         finding_better_routes = True
         remaining_solve_time = self.parameters['max_solve_time'] - self.init_time
-        col_gen_end = time.time() + .9*remaining_solve_time
+        # set covering is not the hardest mip to solve, so give most of the time to column generation
+        col_gen_end = time.time() + self.parameters["column_generation_solve_ratio"] * \
+            remaining_solve_time
 
         # iterate between solving master and subproblem to generate routes
-        # until no improving routes left or we run out of time
+        # until we don't find improving routes or we run out of time
         while finding_better_routes and time.time() < col_gen_end:
             prev_obj = float('inf') if self.mdl.status == gu.GRB.LOADED else self.mdl.objVal
             self.mdl.optimize()
             # move on if we aren't making reasonable progress
-            if self.mdl.objVal > .999 * prev_obj:
+            if self.mdl.objVal > (1 - self.parameters['min_column_generation_progress']) * prev_obj:
                 break
             # reduced cost of a column = (column objective coefficient) - (row duals)^T * column coefs
             self.sub_mdl.setObjective(
@@ -362,6 +398,7 @@ class HeuristicVRP(VRP):
                             for j in self.dat.order)
             )
             self.sub_mdl.optimize()
+            # if negative objective, we have at least one column with a reduced cost
             if self.sub_mdl.objVal < 0:
                 self._add_best_routes()
             else:
@@ -373,7 +410,7 @@ class HeuristicVRP(VRP):
         self.mdl.setParam("TimeLimit", .1*remaining_solve_time)
         self.mdl.optimize()
 
-        self._save_solution()
+        return self._save_solution()
 
     def _add_best_routes(self) -> None:
         """ Add to the master problem the best routes found by the pricing problem
@@ -386,22 +423,25 @@ class HeuristicVRP(VRP):
         solution_number = 0
         self.sub_mdl.setParam("SolutionNumber", solution_number)
 
+        # iterate through columns with reduced costs found by gurobi
         while solution_number < self.sub_mdl.SolCount and self.sub_mdl.PoolObjVal < 0:
             route_cost = sum(f['cost'] * self.x[i, j].xn for (i, j), f in self.dat.arc.items())
             route = self._recover_route()
+            # for each customer visited, get its corresponding constraint from the
+            # master (set covering) problem
             constrs = [self.c[f['node_idx']] for f in route.values() if
                        f['node_idx'] != self.depot_idx]
 
             # add the route as a column in the master problem
             self.z[route_idx] = self.mdl.addVar(name=f'z_{route_idx}', obj=route_cost,
                                                 column=gu.Column([1]*len(constrs), constrs))
-            # record the order of its stops, so we can report them later
+            # record the order of its stops, so we can report them later if chosen
             self.route[route_idx] = route
 
             route_idx += 1
             solution_number += 1
+            # queue the next solution from gurobi
             self.sub_mdl.setParam("SolutionNumber", solution_number)
-        # self.mdl.update()
 
     def _recover_route(self):
         """ Unpack a route that the pricing problem generated
@@ -432,11 +472,11 @@ class HeuristicVRP(VRP):
         assert len(next_stops) == 1, 'the model constrains this list to have one element'
         return next_stops.pop()
 
-    def _save_solution(self) -> None:
+    def _save_solution(self) -> Union[None, dict[str, dict[str, Any]]]:
         """ Save the heuristic solution generated for the exact VRP. Record
         summary statistics and each route's details.
 
-        :return: None
+        :return: Optionally, a dictionary of the solution data
         """
         sln = solution_schema.TicDat()
         selected_routes = [k for k, var in self.z.items() if var.x > .9]
@@ -451,4 +491,22 @@ class HeuristicVRP(VRP):
                 sln.route[k, stop] = f
 
         # save the solution
-        solution_schema.csv.write_directory(sln, self.solution_pth, allow_overwrite=True)
+        if self.solution_pth:
+            solution_schema.csv.write_directory(sln, self.solution_pth, allow_overwrite=True)
+        else:
+            return make_json_dict(solution_schema, sln, verbose=True)
+
+
+if __name__ == '__main__':
+    # run the column generation approach
+    heuristic_vrp = HeuristicVRP(input_dict=toy_input, solution_dict=True)
+    heuristic_sln = heuristic_vrp.solve()
+    print('Heuristic Solution:')
+    print(heuristic_sln)
+    print()
+
+    # run traditional approach
+    exact_vrp = ExactVRP(input_dict=toy_input, solution_dict=True)
+    exact_sln = exact_vrp.solve()
+    print('Exact Solution:')
+    print(exact_sln)

@@ -1,3 +1,7 @@
+"""
+An example of how to run the VRP classes from csv files
+"""
+
 import os
 
 from vehicle_routing_column_generation.algorithms import ExactVRP, HeuristicVRP
