@@ -1,3 +1,9 @@
+"""
+Module to run experiments comparing exact and heuristic VRP solutions after a
+given amount of time. Either runs them in series or generates .pbs files so
+they can be run on a server cluster in parallel
+"""
+
 import os
 import re
 import shutil
@@ -10,6 +16,8 @@ def handle_all_experiments(mode: str, sln_directory: str, run_time=None) -> None
     """ Run both the exact and heuristic VRP methods to compare the quality of
     their solutions for a given amount of time
 
+    :param mode: either 'run' or 'make_pbs_files'. The former runs in series
+    and the latter generates .pbs files to run in parallel
     :param sln_directory: where to save the solutions
     :param run_time: overrides the max_solve_time parameter for convenience
     :return: None
@@ -35,6 +43,15 @@ def handle_all_experiments(mode: str, sln_directory: str, run_time=None) -> None
 
 
 def make_pbs_file(sln_root_pth, orders, input_pth, run_time):
+    """ make a .pbs file to run a single experiment comparing both algorithms'
+    solutions at a specific run time for a given number of orders
+
+    :param sln_root_pth: where to save solutions
+    :param orders: number of orders in this problem instance
+    :param input_pth: where the data set for this instance can be found
+    :param run_time: max run time to cut off solve
+    :return:
+    """
 
     assert run_time is not None, 'run_time cannot be None for pbs file generation'
 

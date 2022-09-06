@@ -1,3 +1,4 @@
+*.png
 .idea/
 .DS_Store
 *.pbs

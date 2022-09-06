@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from vehicle_routing_column_generation.algorithms import ExactVRP, HeuristicVRP, VRP
-from vehicle_routing_column_generation.schemas import input_schema, solution_schema
+from vehicle_routing_column_generation.schemas import input_schema, solution_schema, toy_input
 
 
 class TestBase(unittest.TestCase):
@@ -40,22 +40,28 @@ class TestVRP(TestBase):
         self.assertTrue(vrp.depot_idx == 0)
         self.assertTrue(vrp.fleet == [0, 1])
         self.assertTrue(vrp.M)
+        self.assertTrue(vrp.solution_pth == self.toy_sln_pth)
 
     def test_init_fails_asserts(self):
-        bad_input_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                    'test_inputs', 'toi_input')
         bad_sln_pth = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                    'test_solootions', 'toy_input')
-        self.assertRaisesRegex(AssertionError, 'input_pth must be a valid directory',
-                               VRP, input_pth=bad_input_dir, solution_pth=self.sln_dir)
         self.assertRaisesRegex(AssertionError, 'the parent directory of sln_pth must exist',
                                VRP, input_pth=self.toy_input_pth, solution_pth=bad_sln_pth)
+        self.assertRaisesRegex(AssertionError, 'must specify where to save solution',
+                               VRP, input_pth=self.toy_input_pth)
 
     def test_data_checks(self):
         dat = VRP._data_checks(self.toy_input_pth)
         self.assertTrue(isinstance(dat, input_schema.TicDat))
 
+        dat = VRP._data_checks(input_dict=toy_input)
+        self.assertTrue(isinstance(dat, input_schema.TicDat))
+
     def test_data_checks_fails_asserts(self):
+        bad_input_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                     'test_inputs', 'toi_input')
+        self.assertRaisesRegex(AssertionError, 'input_pth must be a valid directory',
+                               VRP._data_checks, input_pth=bad_input_dir)
         msg = 'Primary Key: 1, Foreign Key: 1, Type Constraint: 1, Check Constraint: 1'
         self.assertRaisesRegex(AssertionError, msg, VRP._data_checks,
                                input_pth=os.path.join(self.input_dir, 'dirty_input_1'))
@@ -103,8 +109,10 @@ class TestExactVRP(TestBase):
     def test_solve(self):
         vrp = ExactVRP(input_pth=self.toy_input_pth, solution_pth=self.toy_sln_pth)
         with patch.object(vrp, '_save_solution') as ss:
-            vrp.solve()
+            ss.return_value = 'dat'
+            rtn = vrp.solve()
             self.assertTrue(ss.called)
+            self.assertTrue(rtn == 'dat')
             self.assertTrue(isclose(vrp.mdl.objVal, 738.569, abs_tol=.1))
 
     def test_small(self):
@@ -118,17 +126,26 @@ class TestExactVRP(TestBase):
         self.assertFalse(vrp.mdl.objVal < float('inf'))
 
     def test_save_solution(self):
-        vrp = ExactVRP(input_pth=self.toy_input_pth, solution_pth=self.toy_sln_pth)
-        vrp.mdl.addConstr(vrp.x[0, 2, 0] == 1)  # fix chosen route to be 0 - 2 - 1 - 0
-        vrp.solve()
-        dat = solution_schema.csv.create_tic_dat(self.toy_sln_pth)
-        self.assertTrue(isclose(dat.summary['cost']['value'], 738.569, abs_tol=.1))
-        self.assertTrue(dat.summary['routes']['value'] == 1)
-        self.assertTrue(len(dat.route) == 4)
-        self.assertTrue(dat.route[0, 0]['node_idx'] == 0)
-        self.assertTrue(dat.route[0, 1]['node_idx'] == 2)
-        self.assertTrue(dat.route[0, 2]['node_idx'] == 1)
-        self.assertTrue(dat.route[0, 3]['node_idx'] == 0)
+        test_args = [
+            {'input_pth': self.toy_input_pth, 'solution_pth': self.toy_sln_pth},
+            {'input_dict': toy_input, 'solution_dict': True}
+        ]
+
+        for test_arg in test_args:
+            vrp = ExactVRP(**test_arg)
+            vrp.mdl.addConstr(vrp.x[0, 2, 0] == 1)  # fix chosen route to be 0 - 2 - 1 - 0
+            dat_dict = vrp.solve()
+            if vrp.solution_pth:
+                dat = solution_schema.csv.create_tic_dat(self.toy_sln_pth)
+            else:
+                dat = solution_schema.TicDat(**dat_dict)
+            self.assertTrue(isclose(dat.summary['cost']['value'], 738.569, abs_tol=.1))
+            self.assertTrue(dat.summary['routes']['value'] == 1)
+            self.assertTrue(len(dat.route) == 4)
+            self.assertTrue(dat.route[0, 0]['node_idx'] == 0)
+            self.assertTrue(dat.route[0, 1]['node_idx'] == 2)
+            self.assertTrue(dat.route[0, 2]['node_idx'] == 1)
+            self.assertTrue(dat.route[0, 3]['node_idx'] == 0)
 
     def test_recover_route(self):
         vrp = ExactVRP(input_pth=self.toy_input_pth, solution_pth=self.toy_sln_pth)
@@ -216,8 +233,10 @@ class TestHeuristicVRP(TestBase):
     def test_solve(self):
         vrp = HeuristicVRP(input_pth=self.toy_input_pth, solution_pth=self.toy_sln_pth)
         with patch.object(vrp, '_save_solution') as ss:
-            vrp.solve()
+            ss.return_value = 'dat'
+            rtn = vrp.solve()
             self.assertTrue(ss.called)
+            self.assertTrue(rtn == 'dat')
             self.assertTrue(isclose(vrp.mdl.objVal, 738.569, abs_tol=.1))
 
     def test_small(self):
@@ -276,19 +295,29 @@ class TestHeuristicVRP(TestBase):
         self.assertTrue(vrp._next_stop(2) == 0)
 
     def test_save_solution(self):
-        vrp = HeuristicVRP(input_pth=self.toy_input_pth, solution_pth=self.toy_sln_pth)
-        vrp.mdl.optimize()
-        vrp._save_solution()
-        dat = solution_schema.csv.create_tic_dat(self.toy_sln_pth)
-        self.assertTrue(isclose(vrp.mdl.objVal, 1391.833, abs_tol=.1))
-        self.assertTrue(dat.summary['routes']['value'] == 2)
-        self.assertTrue(len(dat.route) == 6)
-        self.assertTrue(dat.route[0, 0]['node_idx'] == 0)
-        self.assertTrue(dat.route[0, 1]['node_idx'] == 1)
-        self.assertTrue(dat.route[0, 2]['node_idx'] == 0)
-        self.assertTrue(dat.route[1, 0]['node_idx'] == 0)
-        self.assertTrue(dat.route[1, 1]['node_idx'] == 2)
-        self.assertTrue(dat.route[1, 2]['node_idx'] == 0)
+
+        test_args = [
+            {'input_pth': self.toy_input_pth, 'solution_pth': self.toy_sln_pth},
+            {'input_dict': toy_input, 'solution_dict': True}
+        ]
+
+        for test_arg in test_args:
+            vrp = HeuristicVRP(**test_arg)
+            vrp.mdl.optimize()
+            dat_dict = vrp._save_solution()
+            if vrp.solution_pth:
+                dat = solution_schema.csv.create_tic_dat(self.toy_sln_pth)
+            else:
+                dat = solution_schema.TicDat(**dat_dict)
+            self.assertTrue(isclose(vrp.mdl.objVal, 1391.833, abs_tol=.1))
+            self.assertTrue(dat.summary['routes']['value'] == 2)
+            self.assertTrue(len(dat.route) == 6)
+            self.assertTrue(dat.route[0, 0]['node_idx'] == 0)
+            self.assertTrue(dat.route[0, 1]['node_idx'] == 1)
+            self.assertTrue(dat.route[0, 2]['node_idx'] == 0)
+            self.assertTrue(dat.route[1, 0]['node_idx'] == 0)
+            self.assertTrue(dat.route[1, 1]['node_idx'] == 2)
+            self.assertTrue(dat.route[1, 2]['node_idx'] == 0)
 
 
 if __name__ == '__main__':

@@ -1,3 +1,7 @@
+"""
+Creates a random set of inputs for the VRPTW
+"""
+
 from math import asin, cos, floor, radians, sin, sqrt
 import numpy as np
 import os

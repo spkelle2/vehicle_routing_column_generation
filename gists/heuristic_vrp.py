@@ -1,17 +1,100 @@
 """
-Defines three classes.
-* VRP is a base class for data input management that both VRP algorithms will inherit
-* ExactVRP solves the VRPTW in its traditional formulation
-* HeuristicVRP solve the VRPTW as a set covering problem with column generation
+Constructs minimal example to run column generation heuristic for vehicle routing.
+* Defines input and output data requirements
+* Builds in-memory dataset
+* Defines base class, VRP, for data input and validation
+* Defines subclass, HeuristicVRP, for solving VRP with column generation
 """
 
 import gurobipy as gu
 import os
+from ticdat import TicDatFactory
 from ticdat.jsontd import make_json_dict
 import time
 from typing import Tuple, Any, Union
 
-from vehicle_routing_column_generation.schemas import input_schema, solution_schema, toy_input
+
+# ----------------- Define Input and Output Data Requirements ------------------
+# label column headers and set primary key constraints
+input_schema = TicDatFactory(
+    arc=[['start_idx', 'end_idx'], ['travel_time', 'cost']],
+    node=[['idx'], ['name', 'type', 'lat', 'long', 'open', 'close']],
+    order=[['node_idx'], ['weight']],
+    parameters=[['key'], ['value']]  # truck capacity
+)
+
+# set type constraints (pks default to strings. other cols default to floats)
+input_schema.set_data_type('arc', 'start_idx', must_be_int=True)
+input_schema.set_data_type('arc', 'end_idx', must_be_int=True)
+input_schema.set_data_type('node', 'idx', must_be_int=True)
+input_schema.set_data_type('node', 'name', number_allowed=False, strings_allowed="*", nullable=True)
+input_schema.set_data_type('node', 'type', number_allowed=False, strings_allowed=('depot', 'customer'))
+input_schema.set_data_type('node', 'lat', min=-90, max=90, inclusive_max=True)
+input_schema.set_data_type('node', 'long', min=-180, max=180, inclusive_max=True)
+input_schema.set_data_type('node', 'open', max=24, inclusive_max=True)
+input_schema.set_data_type('node', 'close', max=24, inclusive_max=True)
+input_schema.set_data_type('order', 'node_idx', must_be_int=True)
+
+# set foreign key constraints (all node indices must be an index of the node table)
+input_schema.add_foreign_key('arc', 'node', ['start_idx', 'idx'])
+input_schema.add_foreign_key('arc', 'node', ['end_idx', 'idx'])
+input_schema.add_foreign_key('order', 'node', ['node_idx', 'idx'])
+
+# set check constraints (all locations close no earlier than they open)
+input_schema.add_data_row_predicate('node', predicate_name="open_close_check",
+    predicate=lambda row: row['open'] <= row['close'])
+
+# set parameter constraints
+input_schema.add_parameter("truck_capacity", 40000)
+input_schema.add_parameter("max_solve_time", 60)
+input_schema.add_parameter("solutions_per_pricing_problem", "number_customers",
+                           strings_allowed=("number_customers",))
+input_schema.add_parameter("pricing_problem_mip_gap", .1, max=1)
+input_schema.add_parameter("pricing_problem_time_limit", 1)
+input_schema.add_parameter("min_column_generation_progress", .001, max=1)
+input_schema.add_parameter("column_generation_solve_ratio", .9, max=1)
+
+# solution tables
+solution_schema = TicDatFactory(
+    summary=[['key'], ['value']],  # routes and cost
+    route=[['idx', 'stop'], ['node_idx', 'arrival']]
+)
+
+solution_schema.set_data_type('route', 'idx', must_be_int=True)
+solution_schema.set_data_type('route', 'stop', must_be_int=True)
+
+
+# --------------- Define Static Input Data Set for Example Run -----------------
+toy_input = {
+    'arc': {
+        (0, 1): {'travel_time': 2.3639163739810654, 'cost': 618.1958186990532},
+        (1, 0): {'travel_time': 2.3639163739810654, 'cost': 118.19581869905328},
+        (0, 2): {'travel_time': 1.5544182164530995, 'cost': 577.720910822655},
+        (2, 0): {'travel_time': 1.5544182164530995, 'cost': 77.72091082265497},
+        (1, 2): {'travel_time': 0.853048419193608, 'cost': 42.6524209596804},
+        (2, 1): {'travel_time': 0.853048419193608, 'cost': 42.6524209596804}
+    },
+    'node': {
+        0: {'name': 'depot', 'type': 'depot', 'lat': 39.91, 'long': -76.5, 'open': 0, 'close': 24},
+        1: {'name': 'customer 1', 'type': 'customer', 'lat': 39.91, 'long': -74.61, 'open': 13, 'close': 21},
+        2: {'name': 'customer 2', 'type': 'customer', 'lat': 39.78, 'long': -75.27, 'open': 7, 'close': 15}
+    },
+    'order': {
+        1: {'weight': 13084},
+        2: {'weight': 8078}
+    },
+    'parameters': {
+        'truck_capacity': {'value': 40000},
+        'fleet_size': {'value': 2},
+        'max_solve_time': {'value': 60},
+        'exact_vrp_mip_gap': {'value': .01},
+        'solutions_per_pricing_problem': {'value': 'number_customers'},
+        'pricing_problem_mip_gap': {'value': .1},
+        'pricing_problem_time_limit': {'value': 1},
+        'min_column_generation_progress': {'value': .001},
+        'column_generation_solve_ratio': {'value': .9}
+    }
+}
 
 
 class VRP:
@@ -81,164 +164,6 @@ class VRP:
             "There should be exactly one order for each customer"
 
         return dat
-
-
-class ExactVRP(VRP):
-
-    def __init__(self, **kwargs):
-        """Constructor for exact VRP. Builds model in gurobi.
-
-        :param **kwargs: keyword arguments to pass onto base constructor
-        """
-        init_start = time.time()
-        super().__init__(**kwargs)
-        self.mdl, self.x, self.s = self._create_exact_vrp()
-        self.init_time = time.time() - init_start
-
-    def _create_exact_vrp(self) -> \
-            Tuple[gu.Model, dict[Tuple[int, int, int], gu.Var], dict[int, gu.Var]]:
-        """ Create the gurobi model for the exact VRP. Formulation adapted from
-        https://how-to.aimms.com/Articles/332/332-Formulation-CVRP.html and
-        https://how-to.aimms.com/Articles/332/332-Time-Windows.html
-
-        :return: mdl, x, and s, which are respectively the gurobi model, a
-        dictionary of variables representing arcs traveled, and a dictionary
-        of variables representing arrival times at each customer
-        """
-        # make model
-        mdl = gu.Model("exact_vrp")
-        mdl.setParam("MIPGap", self.parameters['exact_vrp_mip_gap'])
-
-        # create variables
-        # x_i_j_k if truck k travels from node i to node j
-        x = {(i, j, k): mdl.addVar(vtype=gu.GRB.BINARY, name=f'x_{i}_{j}_{k}')
-             for i in self.dat.node for j in self.dat.node for k in self.fleet if i != j}
-        # s_i time when service begins at node i
-        s = {i: mdl.addVar(lb=f['open'], ub=f['close'], name=f's_{i}')
-                  for i, f in self.dat.node.items()}
-
-        # set objective
-        mdl.setObjective(gu.quicksum(
-            gu.quicksum(f['cost'] * x[i, j, k] for (i, j), f in self.dat.arc.items())
-            for k in self.fleet
-        ), sense=gu.GRB.MINIMIZE)
-
-        # set constraints
-        # 1) Any node j entered by truck k must be left by truck k
-        for j in self.dat.node:
-            for k in self.fleet:
-                mdl.addConstr(
-                    gu.quicksum(x[i, j, k] for i in self.dat.node if i != j) -
-                    gu.quicksum(x[j, h, k] for h in self.dat.node if j != h) == 0,
-                    name=f"flow_conserve_{j}_{k}"
-                )
-        # 2) Every customer is visited once
-        for j, f in self.dat.order.items():
-            mdl.addConstr(
-                gu.quicksum(gu.quicksum(x[i, j, k] for i in self.dat.node if i != j)
-                            for k in self.fleet) == 1,
-                name=f"demand_{j}"
-            )
-        # 3) Every truck k leaves the depot at most once
-        for k in self.fleet:
-            mdl.addConstr(
-                gu.quicksum(x[self.depot_idx, j, k] for j in self.dat.order)
-                <= 1, name=f"include_depot_{k}"
-            )
-        # 4) Every truck k stays within capacity
-        for k in self.fleet:
-            mdl.addConstr(
-                gu.quicksum(gu.quicksum(f['weight'] * x[i, j, k] for j, f in self.dat.order.items()
-                                        if i != j) for i in self.dat.node)
-                <= self.parameters['truck_capacity'], name=f"capacity_{k}"
-            )
-
-        # 5) If truck k serves customers/orders i then j, the latter must occur
-        # after the travel time from the former
-        for k in self.fleet:
-            for i in self.dat.node:
-                for j in self.dat.order:
-                    if i == j:
-                        continue
-                    mdl.addConstr(
-                        s[i] + self.dat.arc[i, j]['travel_time'] - self.M * (1 - x[i, j, k]) <= s[j],
-                        f'travel_time_{i}_{j}_{k}'
-                    )
-
-        return mdl, x, s
-
-    def solve(self) -> Union[None, dict[str, dict[str, Any]]]:
-        """ Solve the exact VRP and save its solution
-
-        :return: None
-        """
-        # limit solve time to whatever is left after model build
-        self.mdl.setParam("TimeLimit", max(self.parameters['max_solve_time'] - self.init_time, .1))
-        self.mdl.optimize()
-        if self.mdl.objVal < float('inf'):
-            return self._save_solution()
-        else:
-            print('no solution found!')
-
-    def _save_solution(self) -> Union[None, dict[str, dict[str, Any]]]:
-        """ Save the solution to the exact VRP. Record summary statistics and
-        each route's details.
-
-        :return: Optionally, a dictionary of the solution data
-        """
-
-        sln = solution_schema.TicDat()
-        used_trucks = [k for k in self.fleet if
-                       sum(self.x[self.depot_idx, j, k].x for j in self.dat.order) >= .9]
-
-        # record summary stats
-        sln.summary['cost'] = self.mdl.objVal
-        sln.summary['routes'] = len(used_trucks)
-
-        # record the route that each used truck takes
-        for k in used_trucks:
-            for stop, f in self._recover_route(truck_idx=k).items():
-                sln.route[k, stop] = f
-
-        # save the solution
-        if self.solution_pth:
-            solution_schema.csv.write_directory(sln, self.solution_pth, allow_overwrite=True)
-        else:
-            return make_json_dict(solution_schema, sln, verbose=True)
-
-    def _recover_route(self, truck_idx) -> dict[int, dict[str, Any]]:
-        """ Unpack the route that the exact VRP determined truck <truck_idx>
-        traveled to make its deliveries
-
-        :param truck_idx: the index of the truck which route needs recovering
-        :return: route, a dictionary that maps stop order to customer locations
-        and arrival times
-        """
-        route = {0: {'node_idx': self.depot_idx, 'arrival': 0}}
-        stop = 1
-        node_idx = self._next_stop(self.depot_idx, truck_idx)
-
-        while node_idx != self.depot_idx:
-            route[stop] = {'node_idx': node_idx, 'arrival': self.s[node_idx].x}
-
-            stop += 1
-            node_idx = self._next_stop(node_idx, truck_idx)
-
-        route[stop] = {'node_idx': self.depot_idx, 'arrival': 24}
-        return route
-
-    def _next_stop(self, current_node_idx, truck_idx) -> int:
-        """ Determine the index of the location truck <truck_idx> traveled after
-        visiting location <current_node_idx>, as determined by the exact VRP model
-
-        :param current_node_idx: index of location truck <truck_idx> is currently
-        :param truck_idx: the index of the truck which route is being unpacked
-        :return: the index of the next location truck <truck_idx> travels
-        """
-        next_stops = [j for j in self.dat.node if current_node_idx != j and
-                      self.x[current_node_idx, j, truck_idx].x > .9]
-        assert len(next_stops) == 1, 'the model constrains this list to have one element'
-        return next_stops.pop()
 
 
 class HeuristicVRP(VRP):
@@ -503,10 +428,3 @@ if __name__ == '__main__':
     heuristic_sln = heuristic_vrp.solve()
     print('Heuristic Solution:')
     print(heuristic_sln)
-    print()
-
-    # run traditional approach
-    exact_vrp = ExactVRP(input_dict=toy_input, solution_dict=True)
-    exact_sln = exact_vrp.solve()
-    print('Exact Solution:')
-    print(exact_sln)
