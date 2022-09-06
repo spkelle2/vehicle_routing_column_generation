@@ -292,7 +292,7 @@ class HeuristicVRP(VRP):
              for route_idx, j in singleton.items()}
 
         # set constraints
-        # 7) each customer must be visited by a route (i.e. have delivery demand met)
+        # 8) each customer must be visited by a route (i.e. have delivery demand met)
         # since starting routes are singletons, each must be selected to cover
         c = {j: mdl.addConstr(z[route_idx] >= 1, name=f'c_{j}') for route_idx, j
              in singleton.items()}
@@ -336,26 +336,26 @@ class HeuristicVRP(VRP):
              for i, f in self.dat.node.items()}
 
         # set constraints
-        # 8) Any node j entered by this route must be left
+        # 9) Any node j entered by this route must be left
         for j in self.dat.node:
             sub_mdl.addConstr(
                 gu.quicksum(x[i, j] for i in self.dat.node if i != j) -
                 gu.quicksum(x[j, h] for h in self.dat.node if j != h) == 0,
                 name=f"flow_conserve_{j}"
             )
-        # 9) The route leaves the depot at most once
+        # 10) The route leaves the depot at most once
         sub_mdl.addConstr(
             gu.quicksum(x[self.depot_idx, j] for j in self.dat.order) <= 1,
             name=f"include_depot"
         )
-        # 10) Route stays within capacity
+        # 11) Route stays within capacity
         sub_mdl.addConstr(
             gu.quicksum(gu.quicksum(f['weight'] * x[i, j] for j, f in self.dat.order.items()
                                     if i != j) for i in self.dat.node)
             <= self.parameters['truck_capacity'], name=f"capacity"
         )
 
-        # 11) If route serves customers/orders i then j, the latter must occur
+        # 12) If route serves customers/orders i then j, the latter must occur
         # after the travel time from the former
         for i in self.dat.node:
             for j in self.dat.order:
