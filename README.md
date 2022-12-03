@@ -1,7 +1,7 @@
 # vehicle_routing_column_generation
 A demo on how to use column generation within a heuristic for solving the Vehicle
 Routing Problem with Time Windows (VRPTW). Companion repo for the medium article
-["How to Implement Column Generation for Vehicle Routing"](google.com).
+["How to Implement Column Generation for Vehicle Routing"](https://medium.com/@sean-patrick-kelley/how-to-implement-column-generation-for-vehicle-routing-bdb8027c957f).
 
 ## Install/Run Instructions
 This package recreates its environment from [conda](https://docs.conda.io/en/latest/miniconda.html)
