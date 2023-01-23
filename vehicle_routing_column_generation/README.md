@@ -22,7 +22,7 @@ return the incumbent solution.
 ### solutions_per_pricing_problem
 How many solutions (with negative reduced costs) to add back to the master problem
 for each solve of the subproblem. Adding more slows down master problem resolve,
-but adding fewer reduces space of possible solutions. Either case can result in
+but adding fewer results in more pricing problem solves. Either case can result in
 reduced solution quality, so user should test for optimal value. Defaults to the
 same number of orders supplied in the input data set.
 
