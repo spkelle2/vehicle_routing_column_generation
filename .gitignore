@@ -1,4 +1,12 @@
-*.png
+*.log
+*.gz
+*.snm
+*.toc
+*.nav
+*.xml
+*.bcf
+*.out
+*.aux
 .idea/
 .DS_Store
 *.pbs
