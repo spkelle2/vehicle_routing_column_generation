@@ -30,6 +30,9 @@ The test suite for vehicle_routing_column_generation can be found here.
 ### gists
 This is the source for the gists embedded in the medium article about this repo.
 
+### slides
+This is the source and a `.pdf` rendering of a presentation I made based off the medium article.
+
 ### tutorial
 This is a package for creating and running numerical experiments that compare the solution
 quality of exact and heuristic solves of the VRP. I used this package to demonstrate
